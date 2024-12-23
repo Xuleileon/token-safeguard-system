@@ -63,6 +63,22 @@ export default function AuthPage() {
           providers={[]}
           redirectTo={`${window.location.origin}/auth/callback`}
           view="sign_in"
+          localization={{
+            variables: {
+              sign_in: {
+                email_label: 'Email address',
+                password_label: 'Password',
+                button_label: 'Sign in',
+                loading_button_label: 'Signing in...',
+              },
+              sign_up: {
+                email_label: 'Email address',
+                password_label: 'Create a password',
+                button_label: 'Sign up',
+                loading_button_label: 'Signing up...',
+              },
+            },
+          }}
         />
       </div>
     </div>
