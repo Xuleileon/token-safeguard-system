@@ -37,6 +37,15 @@ export default function AuthPage() {
       }
     });
 
+    // Check if user is already signed in
+    const checkUser = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session) {
+        navigate("/");
+      }
+    };
+    checkUser();
+
     // Cleanup subscription on unmount
     return () => {
       subscription.unsubscribe();
@@ -70,12 +79,16 @@ export default function AuthPage() {
                 password_label: 'Password',
                 button_label: 'Sign in',
                 loading_button_label: 'Signing in...',
+                email_input_placeholder: 'Your email address',
+                password_input_placeholder: 'Your password',
               },
               sign_up: {
                 email_label: 'Email address',
                 password_label: 'Create a password',
                 button_label: 'Sign up',
                 loading_button_label: 'Signing up...',
+                email_input_placeholder: 'Your email address',
+                password_input_placeholder: 'Choose a strong password',
               },
             },
           }}
