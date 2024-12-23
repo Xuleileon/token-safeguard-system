@@ -46,20 +46,12 @@ export default function AuthPage() {
           }}
           providers={[]}
           redirectTo={window.location.origin}
-          onAuthStateChange={(event) => {
-            if (event === 'SIGNED_IN_WITH_PASSWORD') {
-              navigate('/');
-            } else if (event === 'USER_UPDATED') {
-              toast({
-                title: "Success",
-                description: "Your account has been updated.",
-              });
-            } else if (event === 'PASSWORD_RECOVERY') {
-              toast({
-                title: "Check your email",
-                description: "We've sent you a password recovery link.",
-              });
-            }
+          onError={(error) => {
+            toast({
+              title: "Error",
+              description: error.message,
+              variant: "destructive",
+            });
           }}
         />
       </div>
