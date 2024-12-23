@@ -54,15 +54,17 @@ export default function Index() {
       }
 
       // Store tokens in database
-      const { error: dbError } = await supabase.from("tokens").insert({
-        user_id: user.id,
-        app_id: appId,
-        app_secret: appSecret,
-        auth_token: authToken,
-        access_token: data.data.access_token,
-        refresh_token: data.data.refresh_token,
-        expires_at: new Date(Date.now() + data.data.expires_in * 1000).toISOString(),
-      });
+      const { error: dbError } = await supabase
+        .from("tokens")
+        .insert({
+          user_id: user.id,
+          app_id: appId,
+          app_secret: appSecret,
+          auth_token: authToken,
+          access_token: data.data.access_token,
+          refresh_token: data.data.refresh_token,
+          expires_at: new Date(Date.now() + data.data.expires_in * 1000).toISOString(),
+        });
 
       if (dbError) throw dbError;
 
