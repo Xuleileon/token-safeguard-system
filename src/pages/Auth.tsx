@@ -61,7 +61,8 @@ export default function AuthPage() {
             }
           }}
           providers={[]}
-          redirectTo={window.location.origin}
+          redirectTo={`${window.location.origin}/auth/callback`}
+          view="sign_in"
         />
       </div>
     </div>
