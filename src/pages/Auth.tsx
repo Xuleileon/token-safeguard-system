@@ -4,6 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useNavigate } from "react-router-dom";
 import { useEffect } from "react";
 import { useToast } from "@/hooks/use-toast";
+import { AuthChangeEvent } from "@supabase/supabase-js";
 
 export default function AuthPage() {
   const navigate = useNavigate();
@@ -11,11 +12,11 @@ export default function AuthPage() {
 
   useEffect(() => {
     // Listen for auth state changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event: AuthChangeEvent, session) => {
       if (event === 'SIGNED_IN' && session) {
         navigate("/");
       }
-      if (event === 'USER_DELETED' || event === 'SIGNED_OUT') {
+      if (event === 'SIGNED_OUT') {
         navigate("/auth");
       }
     });
@@ -45,12 +46,20 @@ export default function AuthPage() {
           }}
           providers={[]}
           redirectTo={window.location.origin}
-          onError={(error) => {
-            toast({
-              title: "Authentication Error",
-              description: error.message,
-              variant: "destructive",
-            });
+          onAuthStateChange={(event) => {
+            if (event === 'SIGNED_IN_WITH_PASSWORD') {
+              navigate('/');
+            } else if (event === 'USER_UPDATED') {
+              toast({
+                title: "Success",
+                description: "Your account has been updated.",
+              });
+            } else if (event === 'PASSWORD_RECOVERY') {
+              toast({
+                title: "Check your email",
+                description: "We've sent you a password recovery link.",
+              });
+            }
           }}
         />
       </div>
