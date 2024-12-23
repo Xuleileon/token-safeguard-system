@@ -15,9 +15,25 @@ export default function AuthPage() {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event: AuthChangeEvent, session) => {
       if (event === 'SIGNED_IN' && session) {
         navigate("/");
+        toast({
+          title: "Success",
+          description: "Successfully signed in!",
+        });
       }
       if (event === 'SIGNED_OUT') {
         navigate("/auth");
+      }
+      if (event === 'PASSWORD_RECOVERY') {
+        toast({
+          title: "Check your email",
+          description: "We've sent you a password recovery link.",
+        });
+      }
+      if (event === 'USER_UPDATED') {
+        toast({
+          title: "Success",
+          description: "Your account has been updated.",
+        });
       }
     });
 
@@ -25,7 +41,7 @@ export default function AuthPage() {
     return () => {
       subscription.unsubscribe();
     };
-  }, [navigate]);
+  }, [navigate, toast]);
 
   return (
     <div className="container max-w-lg mx-auto p-6">
@@ -46,13 +62,6 @@ export default function AuthPage() {
           }}
           providers={[]}
           redirectTo={window.location.origin}
-          onError={(error) => {
-            toast({
-              title: "Error",
-              description: error.message,
-              variant: "destructive",
-            });
-          }}
         />
       </div>
     </div>
