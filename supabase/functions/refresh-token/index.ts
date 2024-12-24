@@ -31,7 +31,11 @@ serve(async (req) => {
 
     if (fetchError) {
       console.error('Error fetching token:', fetchError);
-      throw fetchError;
+      throw new Error('Failed to fetch token');
+    }
+
+    if (!token) {
+      throw new Error('Token not found');
     }
 
     console.log('Found token:', token);
@@ -47,6 +51,10 @@ serve(async (req) => {
         refresh_token: token.refresh_token,
       }),
     });
+
+    if (!response.ok) {
+      throw new Error(`Qianchuan API returned ${response.status}`);
+    }
 
     const data = await response.json();
     console.log('Qianchuan API response:', data);
@@ -64,7 +72,7 @@ serve(async (req) => {
 
       if (updateError) {
         console.error('Error updating token:', updateError);
-        throw updateError;
+        throw new Error('Failed to update token');
       }
 
       return new Response(
@@ -78,7 +86,7 @@ serve(async (req) => {
     console.error('Error:', error);
     return new Response(
       JSON.stringify({ 
-        error: error.message,
+        error: error.message || 'An unexpected error occurred',
         details: error
       }),
       { 
