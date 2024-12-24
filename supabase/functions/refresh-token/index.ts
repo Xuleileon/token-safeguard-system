@@ -82,18 +82,31 @@ serve(async (req) => {
 
     // Call Qianchuan API to refresh token
     try {
-      const apiResponse = await fetch('https://api.oceanengine.com/open_api/v1.0/oauth2/refresh_token', {
+      const apiUrl = 'https://business.oceanengine.com/open_api/oauth2/refresh_token/';
+      const requestBody = {
+        app_id: token.app_id,
+        secret: token.app_secret,
+        grant_type: 'refresh_token',
+        refresh_token: token.refresh_token,
+      };
+
+      console.log('Making request to Qianchuan API:', {
+        url: apiUrl,
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        },
+        body: { ...requestBody, refresh_token: requestBody.refresh_token?.substring(0, 10) + '...' }
+      });
+
+      const apiResponse = await fetch(apiUrl, {
         method: 'POST',
         headers: { 
           'Content-Type': 'application/json',
           'Accept': 'application/json'
         },
-        body: JSON.stringify({
-          app_id: token.app_id,
-          secret: token.app_secret,
-          grant_type: 'refresh_token',
-          refresh_token: token.refresh_token,
-        }),
+        body: JSON.stringify(requestBody),
       });
 
       // Log API response status and headers
