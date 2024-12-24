@@ -45,7 +45,7 @@ serve(async (req) => {
       );
     }
 
-    console.log('Refreshing token with ID:', tokenId);
+    console.log('Fetching token with ID:', tokenId);
 
     // Get token from database
     const { data: token, error: fetchError } = await supabaseClient
@@ -75,14 +75,19 @@ serve(async (req) => {
       );
     }
 
-    console.log('Found token:', token);
+    console.log('Preparing to call Qianchuan API with token:', {
+      app_id: token.app_id,
+      refresh_token: token.refresh_token?.substring(0, 10) + '...',
+    });
 
     // Call Qianchuan API to refresh token
-    let response;
     try {
-      response = await fetch('https://qianchuan.jinritemai.com/oauth2/refresh_token', {
+      const apiResponse = await fetch('https://qianchuan.jinritemai.com/oauth2/refresh_token', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        },
         body: JSON.stringify({
           app_id: token.app_id,
           secret: token.app_secret,
@@ -91,8 +96,12 @@ serve(async (req) => {
         }),
       });
 
-      // Log the raw response for debugging
-      const rawResponse = await response.text();
+      // Log API response status and headers
+      console.log('Qianchuan API response status:', apiResponse.status);
+      console.log('Qianchuan API response headers:', Object.fromEntries(apiResponse.headers.entries()));
+
+      // Get raw response text first
+      const rawResponse = await apiResponse.text();
       console.log('Raw Qianchuan API response:', rawResponse);
 
       // Try to parse the response as JSON
@@ -100,12 +109,12 @@ serve(async (req) => {
       try {
         data = JSON.parse(rawResponse);
       } catch (error) {
-        console.error('Error parsing Qianchuan API response:', error);
-        console.error('Raw response:', rawResponse);
+        console.error('Failed to parse Qianchuan API response as JSON:', error);
         return new Response(
           JSON.stringify({ 
             error: 'Invalid response from Qianchuan API',
-            details: 'Response was not valid JSON'
+            details: 'Response was not valid JSON',
+            raw_response: rawResponse.substring(0, 200) // Log first 200 chars for debugging
           }),
           { headers: corsHeaders, status: 502 }
         );
@@ -113,13 +122,13 @@ serve(async (req) => {
 
       console.log('Parsed Qianchuan API response:', data);
 
-      if (!response.ok || data.message !== 'success') {
+      if (!apiResponse.ok || data.message !== 'success') {
         return new Response(
           JSON.stringify({ 
-            error: data.message || 'Failed to refresh token',
+            error: 'Qianchuan API error',
             details: data
           }),
-          { headers: corsHeaders, status: response.status || 400 }
+          { headers: corsHeaders, status: apiResponse.status || 400 }
         );
       }
 
