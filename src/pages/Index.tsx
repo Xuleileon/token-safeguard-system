@@ -115,12 +115,17 @@ export default function Index() {
     const { data: { session } } = await supabase.auth.getSession();
     if (!session) return null;
 
-    const { data: token } = await supabase
+    const { data: token, error } = await supabase
       .from("tokens")
       .select("*")
       .eq("user_id", session.user.id)
       .eq("app_id", appId)
-      .single();
+      .maybeSingle();
+
+    if (error) {
+      console.error("Error checking existing token:", error);
+      return null;
+    }
 
     return token;
   }
@@ -220,7 +225,7 @@ export default function Index() {
           <DialogHeader>
             <DialogTitle>Token Still Valid</DialogTitle>
             <DialogDescription>
-              This App ID already has a valid token that expires at {new Date(existingToken?.expires_at).toLocaleString()}. 
+              This App ID already has a valid token that expires at {existingToken?.expires_at ? new Date(existingToken.expires_at).toLocaleString() : 'Unknown'}. 
               Do you want to proceed with re-authorization?
             </DialogDescription>
           </DialogHeader>
