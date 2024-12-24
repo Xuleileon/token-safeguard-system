@@ -22,6 +22,19 @@ serve(async (req) => {
     const { tokenId } = await req.json();
     console.log('Refreshing token with ID:', tokenId);
 
+    if (!tokenId) {
+      return new Response(
+        JSON.stringify({ 
+          error: 'Token ID is required',
+          details: null
+        }),
+        { 
+          status: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        }
+      );
+    }
+
     // Get token from database
     const { data: token, error: fetchError } = await supabaseClient
       .from('tokens')
@@ -31,11 +44,29 @@ serve(async (req) => {
 
     if (fetchError) {
       console.error('Error fetching token:', fetchError);
-      throw new Error('Failed to fetch token');
+      return new Response(
+        JSON.stringify({ 
+          error: 'Failed to fetch token',
+          details: fetchError
+        }),
+        { 
+          status: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        }
+      );
     }
 
     if (!token) {
-      throw new Error('Token not found');
+      return new Response(
+        JSON.stringify({ 
+          error: 'Token not found',
+          details: null
+        }),
+        { 
+          status: 404,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        }
+      );
     }
 
     console.log('Found token:', token);
@@ -52,46 +83,66 @@ serve(async (req) => {
       }),
     });
 
-    if (!response.ok) {
-      throw new Error(`Qianchuan API returned ${response.status}`);
-    }
-
     const data = await response.json();
     console.log('Qianchuan API response:', data);
 
-    if (data.message === 'success') {
-      // Update token in database
-      const { error: updateError } = await supabaseClient
-        .from('tokens')
-        .update({
-          access_token: data.data.access_token,
-          refresh_token: data.data.refresh_token,
-          expires_at: new Date(Date.now() + data.data.expires_in * 1000).toISOString(),
-        })
-        .eq('id', tokenId);
-
-      if (updateError) {
-        console.error('Error updating token:', updateError);
-        throw new Error('Failed to update token');
-      }
-
+    if (!response.ok || data.message !== 'success') {
       return new Response(
-        JSON.stringify({ success: true, data: data.data }),
-        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        JSON.stringify({ 
+          error: data.message || 'Failed to refresh token',
+          details: data
+        }),
+        { 
+          status: response.status || 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        }
       );
-    } else {
-      throw new Error(data.message || 'Failed to refresh token');
     }
+
+    // Update token in database
+    const { error: updateError } = await supabaseClient
+      .from('tokens')
+      .update({
+        access_token: data.data.access_token,
+        refresh_token: data.data.refresh_token,
+        expires_at: new Date(Date.now() + data.data.expires_in * 1000).toISOString(),
+      })
+      .eq('id', tokenId);
+
+    if (updateError) {
+      console.error('Error updating token:', updateError);
+      return new Response(
+        JSON.stringify({ 
+          error: 'Failed to update token',
+          details: updateError
+        }),
+        { 
+          status: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        }
+      );
+    }
+
+    return new Response(
+      JSON.stringify({ 
+        success: true,
+        data: data.data 
+      }),
+      { 
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      }
+    );
+
   } catch (error) {
     console.error('Error:', error);
     return new Response(
       JSON.stringify({ 
-        error: error.message || 'An unexpected error occurred',
-        details: error
+        error: 'An unexpected error occurred',
+        details: error.message || String(error)
       }),
       { 
         status: 500,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
       }
     );
   }
