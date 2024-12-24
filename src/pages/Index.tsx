@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -9,20 +9,100 @@ import { supabase } from "@/integrations/supabase/client";
 export default function Index() {
   const navigate = useNavigate();
   const { toast } = useToast();
+  const [searchParams] = useSearchParams();
   const [loading, setLoading] = useState(false);
   const [appId, setAppId] = useState("");
   const [appSecret, setAppSecret] = useState("");
-  const [authToken, setAuthToken] = useState("");
   const [error, setError] = useState("");
 
   useEffect(() => {
     checkUser();
+    handleAuthCode();
   }, []);
 
   async function checkUser() {
     const { data: { session } } = await supabase.auth.getSession();
     if (!session) {
       navigate("/auth");
+    }
+  }
+
+  async function handleAuthCode() {
+    const auth_code = searchParams.get("auth_code");
+    if (auth_code) {
+      setLoading(true);
+      setError("");
+
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) throw new Error("No user found");
+
+        // Get the stored app credentials
+        const { data: tokens } = await supabase
+          .from("tokens")
+          .select("app_id, app_secret")
+          .eq("user_id", user.id)
+          .single();
+
+        if (!tokens) {
+          throw new Error("Please save your app credentials first");
+        }
+
+        // Get access token using auth code
+        const response = await fetch("https://qianchuan.jinritemai.com/oauth2/access_token", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Accept": "application/json"
+          },
+          body: JSON.stringify({
+            app_id: tokens.app_id,
+            secret: tokens.app_secret,
+            grant_type: "authorization_code",
+            auth_code: auth_code,
+          }),
+        });
+
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        const data = await response.json();
+
+        if (data.message !== "success") {
+          throw new Error(data.message || "Failed to get access token");
+        }
+
+        // Update tokens in database
+        const { error: dbError } = await supabase
+          .from("tokens")
+          .update({
+            auth_token: auth_code,
+            access_token: data.data.access_token,
+            refresh_token: data.data.refresh_token,
+            expires_at: new Date(Date.now() + data.data.expires_in * 1000).toISOString(),
+          })
+          .eq("user_id", user.id);
+
+        if (dbError) throw dbError;
+
+        toast({
+          title: "Success!",
+          description: "Authorization successful. Tokens have been stored.",
+        });
+
+        navigate("/dashboard");
+      } catch (error) {
+        console.error("Error:", error);
+        setError(error.message);
+        toast({
+          variant: "destructive",
+          title: "Error",
+          description: error.message,
+        });
+      } finally {
+        setLoading(false);
+      }
     }
   }
 
@@ -35,52 +115,21 @@ export default function Index() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error("No user found");
 
-      // First try to get access token using auth token
-      const response = await fetch("https://qianchuan.jinritemai.com/oauth2/access_token", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Accept": "application/json"
-        },
-        body: JSON.stringify({
-          app_id: appId,
-          secret: appSecret,
-          grant_type: "authorization_code",
-          auth_code: authToken,
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-
-      const data = await response.json();
-
-      if (data.message !== "success") {
-        throw new Error(data.message || "Failed to get access token");
-      }
-
-      // Store tokens in database
+      // Store app credentials
       const { error: dbError } = await supabase
         .from("tokens")
-        .insert({
+        .upsert({
           user_id: user.id,
           app_id: appId,
           app_secret: appSecret,
-          auth_token: authToken,
-          access_token: data.data.access_token,
-          refresh_token: data.data.refresh_token,
-          expires_at: new Date(Date.now() + data.data.expires_in * 1000).toISOString(),
         });
 
       if (dbError) throw dbError;
 
-      toast({
-        title: "Success!",
-        description: "Tokens have been stored and will be refreshed automatically.",
-      });
+      // Redirect to authorization page
+      const authUrl = `https://qianchuan.jinritemai.com/openapi/qc/audit/oauth.html?app_id=${appId}&state=your_custom_params&material_auth=1`;
+      window.location.href = authUrl;
 
-      navigate("/dashboard");
     } catch (error) {
       console.error("Error:", error);
       setError(error.message);
@@ -124,18 +173,6 @@ export default function Index() {
           />
         </div>
 
-        <div>
-          <label htmlFor="authToken" className="block text-sm font-medium mb-1">
-            Auth Token
-          </label>
-          <Input
-            id="authToken"
-            value={authToken}
-            onChange={(e) => setAuthToken(e.target.value)}
-            required
-          />
-        </div>
-
         {error && (
           <Alert variant="destructive">
             <AlertDescription>{error}</AlertDescription>
@@ -143,7 +180,7 @@ export default function Index() {
         )}
 
         <Button type="submit" className="w-full" disabled={loading}>
-          {loading ? "处理中..." : "保存"}
+          {loading ? "处理中..." : "开始授权"}
         </Button>
       </form>
     </div>
