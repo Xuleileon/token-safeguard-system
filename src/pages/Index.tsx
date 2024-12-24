@@ -38,7 +38,10 @@ export default function Index() {
       // First try to get access token using auth token
       const response = await fetch("https://qianchuan.jinritemai.com/oauth2/access_token", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "Accept": "application/json"
+        },
         body: JSON.stringify({
           app_id: appId,
           secret: appSecret,
@@ -46,6 +49,10 @@ export default function Index() {
           auth_code: authToken,
         }),
       });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
 
       const data = await response.json();
 
