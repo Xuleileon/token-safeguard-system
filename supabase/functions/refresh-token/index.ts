@@ -82,7 +82,7 @@ serve(async (req) => {
 
     // Call Qianchuan API to refresh token
     try {
-      const apiResponse = await fetch('https://api.oceanengine.com/open_api/v1.0/oauth2/refresh_token/', {
+      const apiResponse = await fetch('https://api.oceanengine.com/open_api/v1.0/oauth2/refresh_token', {
         method: 'POST',
         headers: { 
           'Content-Type': 'application/json',
