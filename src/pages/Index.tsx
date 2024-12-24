@@ -1,22 +1,22 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Alert, AlertDescription } from "@/components/ui/alert";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import TokenForm from "@/components/auth/TokenForm";
+import TokenConfirmDialog from "@/components/auth/TokenConfirmDialog";
+import SavedTokensList from "@/components/auth/SavedTokensList";
+import { generateAuthUrl } from "@/utils/auth";
 
 export default function Index() {
   const navigate = useNavigate();
   const { toast } = useToast();
   const [searchParams] = useSearchParams();
   const [loading, setLoading] = useState(false);
-  const [appId, setAppId] = useState("");
-  const [appSecret, setAppSecret] = useState("");
   const [error, setError] = useState("");
   const [showConfirmDialog, setShowConfirmDialog] = useState(false);
-  const [existingToken, setExistingToken] = useState(null);
+  const [existingToken, setExistingToken] = useState<any>(null);
+  const [currentAppId, setCurrentAppId] = useState("");
+  const [currentAppSecret, setCurrentAppSecret] = useState("");
 
   useEffect(() => {
     checkUser();
@@ -46,7 +46,7 @@ export default function Index() {
           .from("tokens")
           .select("app_id, app_secret")
           .eq("user_id", session.user.id)
-          .single();
+          .maybeSingle();
 
         if (!tokens) {
           throw new Error("Please save your app credentials first");
@@ -97,7 +97,7 @@ export default function Index() {
         });
 
         navigate("/dashboard");
-      } catch (error) {
+      } catch (error: any) {
         console.error("Error:", error);
         setError(error.message);
         toast({
@@ -130,10 +130,11 @@ export default function Index() {
     return token;
   }
 
-  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault();
+  async function handleSubmit(appId: string, appSecret: string) {
     setLoading(true);
     setError("");
+    setCurrentAppId(appId);
+    setCurrentAppSecret(appSecret);
 
     try {
       const { data: { session } } = await supabase.auth.getSession();
@@ -151,22 +152,8 @@ export default function Index() {
         }
       }
 
-      // Store app credentials temporarily
-      const { error: dbError } = await supabase
-        .from("tokens")
-        .upsert({
-          user_id: session.user.id,
-          app_id: appId,
-          app_secret: appSecret,
-        });
-
-      if (dbError) throw dbError;
-
-      // Redirect to authorization page
-      const authUrl = `https://ad.oceanengine.com/oauth2/authorize/?response_type=code&client_id=${appId}&redirect_uri=${window.location.origin}/auth/callback&scope=basic_info`;
-      window.location.href = authUrl;
-
-    } catch (error) {
+      await proceedWithAuth(appId, appSecret);
+    } catch (error: any) {
       console.error("Error:", error);
       setError(error.message);
       toast({
@@ -179,69 +166,53 @@ export default function Index() {
     }
   }
 
+  async function proceedWithAuth(appId: string, appSecret: string) {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) throw new Error("No user found");
+
+    // Store app credentials
+    const { error: dbError } = await supabase
+      .from("tokens")
+      .upsert({
+        user_id: session.user.id,
+        app_id: appId,
+        app_secret: appSecret,
+      });
+
+    if (dbError) throw dbError;
+
+    // Redirect to authorization page
+    window.location.href = generateAuthUrl(appId);
+  }
+
+  const handleConfirmReauth = async () => {
+    setShowConfirmDialog(false);
+    if (currentAppId && currentAppSecret) {
+      await proceedWithAuth(currentAppId, currentAppSecret);
+    }
+  };
+
   return (
     <div className="container max-w-lg mx-auto p-6 space-y-8">
       <h1 className="text-2xl font-bold text-center">巨量千川 Token 管理</h1>
       
-      <form onSubmit={handleSubmit} className="space-y-4">
-        <div>
-          <label htmlFor="appId" className="block text-sm font-medium mb-1">
-            App ID
-          </label>
-          <Input
-            id="appId"
-            value={appId}
-            onChange={(e) => setAppId(e.target.value)}
-            required
-          />
-        </div>
+      <SavedTokensList onSelect={handleSubmit} />
+      
+      <div className="my-8">
+        <h2 className="text-xl font-semibold mb-4">Add New App</h2>
+        <TokenForm 
+          onSubmit={handleSubmit}
+          loading={loading}
+          error={error}
+        />
+      </div>
 
-        <div>
-          <label htmlFor="appSecret" className="block text-sm font-medium mb-1">
-            App Secret
-          </label>
-          <Input
-            id="appSecret"
-            type="password"
-            value={appSecret}
-            onChange={(e) => setAppSecret(e.target.value)}
-            required
-          />
-        </div>
-
-        {error && (
-          <Alert variant="destructive">
-            <AlertDescription>{error}</AlertDescription>
-          </Alert>
-        )}
-
-        <Button type="submit" className="w-full" disabled={loading}>
-          {loading ? "处理中..." : "开始授权"}
-        </Button>
-      </form>
-
-      <Dialog open={showConfirmDialog} onOpenChange={setShowConfirmDialog}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Token Still Valid</DialogTitle>
-            <DialogDescription>
-              This App ID already has a valid token that expires at {existingToken?.expires_at ? new Date(existingToken.expires_at).toLocaleString() : 'Unknown'}. 
-              Do you want to proceed with re-authorization?
-            </DialogDescription>
-          </DialogHeader>
-          <div className="flex justify-end space-x-2">
-            <Button variant="outline" onClick={() => setShowConfirmDialog(false)}>
-              Cancel
-            </Button>
-            <Button onClick={(e) => {
-              setShowConfirmDialog(false);
-              handleSubmit(e as unknown as React.FormEvent<HTMLFormElement>);
-            }}>
-              Continue
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
+      <TokenConfirmDialog
+        open={showConfirmDialog}
+        onOpenChange={setShowConfirmDialog}
+        expiresAt={existingToken?.expires_at}
+        onConfirm={handleConfirmReauth}
+      />
     </div>
   );
 }
