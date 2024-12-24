@@ -125,7 +125,7 @@ export default function Index() {
     return token;
   }
 
-  async function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setLoading(true);
     setError("");
@@ -228,9 +228,9 @@ export default function Index() {
             <Button variant="outline" onClick={() => setShowConfirmDialog(false)}>
               Cancel
             </Button>
-            <Button onClick={() => {
+            <Button onClick={(e) => {
               setShowConfirmDialog(false);
-              handleSubmit(new Event('submit'));
+              handleSubmit(e as unknown as React.FormEvent<HTMLFormElement>);
             }}>
               Continue
             </Button>
