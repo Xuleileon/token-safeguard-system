@@ -5,6 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
 export default function Index() {
   const navigate = useNavigate();
@@ -14,6 +15,8 @@ export default function Index() {
   const [appId, setAppId] = useState("");
   const [appSecret, setAppSecret] = useState("");
   const [error, setError] = useState("");
+  const [showConfirmDialog, setShowConfirmDialog] = useState(false);
+  const [existingToken, setExistingToken] = useState(null);
 
   useEffect(() => {
     checkUser();
@@ -25,19 +28,6 @@ export default function Index() {
     if (!session) {
       navigate("/auth");
       return;
-    }
-
-    // Ensure user exists in the users table
-    const { error: userError } = await supabase
-      .from("users")
-      .upsert({
-        id: session.user.id,
-        email: session.user.email,
-      });
-
-    if (userError) {
-      console.error("Error ensuring user exists:", userError);
-      setError(userError.message);
     }
   }
 
@@ -63,7 +53,7 @@ export default function Index() {
         }
 
         // Get access token using auth code
-        const response = await fetch("https://qianchuan.jinritemai.com/oauth2/access_token", {
+        const response = await fetch("https://ad.oceanengine.com/open_api/oauth2/access_token/", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -96,7 +86,8 @@ export default function Index() {
             refresh_token: data.data.refresh_token,
             expires_at: new Date(Date.now() + data.data.expires_in * 1000).toISOString(),
           })
-          .eq("user_id", session.user.id);
+          .eq("user_id", session.user.id)
+          .eq("app_id", tokens.app_id);
 
         if (dbError) throw dbError;
 
@@ -120,6 +111,20 @@ export default function Index() {
     }
   }
 
+  async function checkExistingToken(appId: string) {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) return null;
+
+    const { data: token } = await supabase
+      .from("tokens")
+      .select("*")
+      .eq("user_id", session.user.id)
+      .eq("app_id", appId)
+      .single();
+
+    return token;
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
@@ -129,17 +134,19 @@ export default function Index() {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) throw new Error("No user found");
 
-      // Ensure user exists in users table
-      const { error: userError } = await supabase
-        .from("users")
-        .upsert({
-          id: session.user.id,
-          email: session.user.email,
-        });
+      // Check for existing token
+      const existingToken = await checkExistingToken(appId);
+      
+      if (existingToken) {
+        setExistingToken(existingToken);
+        if (new Date(existingToken.expires_at) > new Date()) {
+          setShowConfirmDialog(true);
+          setLoading(false);
+          return;
+        }
+      }
 
-      if (userError) throw userError;
-
-      // Store app credentials
+      // Store app credentials temporarily
       const { error: dbError } = await supabase
         .from("tokens")
         .upsert({
@@ -151,7 +158,7 @@ export default function Index() {
       if (dbError) throw dbError;
 
       // Redirect to authorization page
-      const authUrl = `https://qianchuan.jinritemai.com/openapi/qc/audit/oauth.html?app_id=${appId}&state=your_custom_params&material_auth=1`;
+      const authUrl = `https://ad.oceanengine.com/oauth2/authorize/?response_type=code&client_id=${appId}&redirect_uri=${window.location.origin}/auth/callback&scope=basic_info`;
       window.location.href = authUrl;
 
     } catch (error) {
@@ -207,6 +214,29 @@ export default function Index() {
           {loading ? "处理中..." : "开始授权"}
         </Button>
       </form>
+
+      <Dialog open={showConfirmDialog} onOpenChange={setShowConfirmDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Token Still Valid</DialogTitle>
+            <DialogDescription>
+              This App ID already has a valid token that expires at {new Date(existingToken?.expires_at).toLocaleString()}. 
+              Do you want to proceed with re-authorization?
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex justify-end space-x-2">
+            <Button variant="outline" onClick={() => setShowConfirmDialog(false)}>
+              Cancel
+            </Button>
+            <Button onClick={() => {
+              setShowConfirmDialog(false);
+              handleSubmit(new Event('submit'));
+            }}>
+              Continue
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

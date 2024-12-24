@@ -1,88 +1,53 @@
-import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.3';
+import { corsHeaders } from '../_shared/cors.ts';
 
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-  'Content-Type': 'application/json'
-};
+const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 
-serve(async (req) => {
+const supabase = createClient(supabaseUrl, supabaseServiceKey);
+
+Deno.serve(async (req) => {
   // Handle CORS preflight requests
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
   }
 
   try {
-    const supabaseClient = createClient(
-      Deno.env.get('SUPABASE_URL') ?? '',
-      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
-    );
-
-    // Parse request body and validate token ID
-    let tokenId;
-    try {
-      const body = await req.json();
-      tokenId = body.tokenId;
-    } catch (error) {
-      console.error('Error parsing request body:', error);
-      return new Response(
-        JSON.stringify({ 
-          error: 'Invalid request body',
-          details: 'Request body must be valid JSON with a tokenId field'
-        }),
-        { headers: corsHeaders, status: 400 }
-      );
-    }
-
-    if (!tokenId) {
-      return new Response(
-        JSON.stringify({ 
-          error: 'Token ID is required',
-          details: null
-        }),
-        { headers: corsHeaders, status: 400 }
-      );
-    }
-
-    console.log('Fetching token with ID:', tokenId);
+    const { tokenId } = await req.json();
+    console.log('Refreshing token:', tokenId);
 
     // Get token from database
-    const { data: token, error: fetchError } = await supabaseClient
+    const { data: token, error: tokenError } = await supabase
       .from('tokens')
       .select('*')
       .eq('id', tokenId)
       .single();
 
-    if (fetchError) {
-      console.error('Error fetching token:', fetchError);
-      return new Response(
-        JSON.stringify({ 
-          error: 'Failed to fetch token',
-          details: fetchError
-        }),
-        { headers: corsHeaders, status: 400 }
-      );
+    if (tokenError) {
+      throw new Error(`Error fetching token: ${tokenError.message}`);
     }
 
     if (!token) {
-      return new Response(
-        JSON.stringify({ 
-          error: 'Token not found',
-          details: null
-        }),
-        { headers: corsHeaders, status: 404 }
-      );
+      throw new Error('Token not found');
     }
 
-    console.log('Preparing to call Qianchuan API with token:', {
-      app_id: token.app_id,
-      refresh_token: token.refresh_token?.substring(0, 10) + '...',
-    });
+    // Check if token needs refresh
+    const expiresAt = new Date(token.expires_at);
+    const now = new Date();
+    const bufferTime = 10 * 60 * 1000; // 10 minutes in milliseconds
+
+    if (expiresAt.getTime() - now.getTime() > bufferTime) {
+      return new Response(JSON.stringify({
+        message: 'Token still valid',
+        expires_at: token.expires_at
+      }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
 
     // Call Qianchuan API to refresh token
     try {
-      const apiUrl = 'https://business.oceanengine.com/open_api/oauth2/refresh_token/';
+      const apiUrl = 'https://ad.oceanengine.com/open_api/oauth2/refresh_token/';
       const requestBody = {
         app_id: token.app_id,
         secret: token.app_secret,
@@ -110,89 +75,55 @@ serve(async (req) => {
       });
 
       // Log API response status and headers
-      console.log('Qianchuan API response status:', apiResponse.status);
-      console.log('Qianchuan API response headers:', Object.fromEntries(apiResponse.headers.entries()));
+      console.log('API Response Status:', apiResponse.status);
+      console.log('API Response Headers:', Object.fromEntries(apiResponse.headers.entries()));
 
-      // Get raw response text first
-      const rawResponse = await apiResponse.text();
-      console.log('Raw Qianchuan API response:', rawResponse);
-
-      // Try to parse the response as JSON
-      let data;
-      try {
-        data = JSON.parse(rawResponse);
-      } catch (error) {
-        console.error('Failed to parse Qianchuan API response as JSON:', error);
-        return new Response(
-          JSON.stringify({ 
-            error: 'Invalid response from Qianchuan API',
-            details: 'Response was not valid JSON',
-            raw_response: rawResponse.substring(0, 200) // Log first 200 chars for debugging
-          }),
-          { headers: corsHeaders, status: 502 }
-        );
+      if (!apiResponse.ok) {
+        const errorText = await apiResponse.text();
+        console.error('API Error Response:', errorText);
+        throw new Error(`API request failed: ${apiResponse.status} ${apiResponse.statusText}`);
       }
 
-      console.log('Parsed Qianchuan API response:', data);
+      const data = await apiResponse.json();
+      console.log('API Response Data:', data);
 
-      if (!apiResponse.ok || data.message !== 'success') {
-        return new Response(
-          JSON.stringify({ 
-            error: 'Qianchuan API error',
-            details: data
-          }),
-          { headers: corsHeaders, status: apiResponse.status || 400 }
-        );
+      if (data.message !== 'success') {
+        throw new Error(data.message || 'Failed to refresh token');
       }
 
       // Update token in database
-      const { error: updateError } = await supabaseClient
+      const { error: updateError } = await supabase
         .from('tokens')
         .update({
           access_token: data.data.access_token,
           refresh_token: data.data.refresh_token,
           expires_at: new Date(Date.now() + data.data.expires_in * 1000).toISOString(),
         })
-        .eq('id', tokenId);
+        .eq('id', token.id);
 
       if (updateError) {
-        console.error('Error updating token:', updateError);
-        return new Response(
-          JSON.stringify({ 
-            error: 'Failed to update token',
-            details: updateError
-          }),
-          { headers: corsHeaders, status: 400 }
-        );
+        throw new Error(`Error updating token: ${updateError.message}`);
       }
 
-      return new Response(
-        JSON.stringify({ 
-          success: true,
-          data: data.data 
-        }),
-        { headers: corsHeaders }
-      );
+      return new Response(JSON.stringify({
+        message: 'Token refreshed successfully',
+        expires_at: new Date(Date.now() + data.data.expires_in * 1000).toISOString(),
+      }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
 
     } catch (error) {
-      console.error('Network error calling Qianchuan API:', error);
-      return new Response(
-        JSON.stringify({ 
-          error: 'Failed to connect to Qianchuan API',
-          details: error.message
-        }),
-        { headers: corsHeaders, status: 503 }
-      );
+      console.error('Error refreshing token:', error);
+      throw new Error(`Error refreshing token: ${error.message}`);
     }
 
   } catch (error) {
-    console.error('Unexpected error:', error);
-    return new Response(
-      JSON.stringify({ 
-        error: 'An unexpected error occurred',
-        details: error.message || String(error)
-      }),
-      { headers: corsHeaders, status: 500 }
-    );
+    console.error('Error:', error);
+    return new Response(JSON.stringify({
+      error: error.message
+    }), {
+      status: 500,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
   }
 });
