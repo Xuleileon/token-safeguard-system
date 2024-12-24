@@ -18,9 +18,24 @@ serve(async (req) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     );
 
-    // Get token ID from request
-    const { tokenId } = await req.json();
-    console.log('Refreshing token with ID:', tokenId);
+    // Parse request body and validate token ID
+    let tokenId;
+    try {
+      const body = await req.json();
+      tokenId = body.tokenId;
+    } catch (error) {
+      console.error('Error parsing request body:', error);
+      return new Response(
+        JSON.stringify({ 
+          error: 'Invalid request body',
+          details: 'Request body must be valid JSON with a tokenId field'
+        }),
+        { 
+          status: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        }
+      );
+    }
 
     if (!tokenId) {
       return new Response(
@@ -34,6 +49,8 @@ serve(async (req) => {
         }
       );
     }
+
+    console.log('Refreshing token with ID:', tokenId);
 
     // Get token from database
     const { data: token, error: fetchError } = await supabaseClient
@@ -72,18 +89,49 @@ serve(async (req) => {
     console.log('Found token:', token);
 
     // Call Qianchuan API to refresh token
-    const response = await fetch('https://qianchuan.jinritemai.com/oauth2/refresh_token', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        app_id: token.app_id,
-        secret: token.app_secret,
-        grant_type: 'refresh_token',
-        refresh_token: token.refresh_token,
-      }),
-    });
+    let response;
+    try {
+      response = await fetch('https://qianchuan.jinritemai.com/oauth2/refresh_token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          app_id: token.app_id,
+          secret: token.app_secret,
+          grant_type: 'refresh_token',
+          refresh_token: token.refresh_token,
+        }),
+      });
+    } catch (error) {
+      console.error('Network error calling Qianchuan API:', error);
+      return new Response(
+        JSON.stringify({ 
+          error: 'Failed to connect to Qianchuan API',
+          details: error.message
+        }),
+        { 
+          status: 503,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        }
+      );
+    }
 
-    const data = await response.json();
+    let data;
+    try {
+      data = await response.json();
+    } catch (error) {
+      console.error('Error parsing Qianchuan API response:', error);
+      return new Response(
+        JSON.stringify({ 
+          error: 'Invalid response from Qianchuan API',
+          details: error.message
+        }),
+        { 
+          status: 502,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        }
+      );
+    }
+
     console.log('Qianchuan API response:', data);
 
     if (!response.ok || data.message !== 'success') {
@@ -134,7 +182,7 @@ serve(async (req) => {
     );
 
   } catch (error) {
-    console.error('Error:', error);
+    console.error('Unexpected error:', error);
     return new Response(
       JSON.stringify({ 
         error: 'An unexpected error occurred',
