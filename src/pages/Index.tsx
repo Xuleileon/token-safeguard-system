@@ -24,6 +24,20 @@ export default function Index() {
     const { data: { session } } = await supabase.auth.getSession();
     if (!session) {
       navigate("/auth");
+      return;
+    }
+
+    // Ensure user exists in the users table
+    const { error: userError } = await supabase
+      .from("users")
+      .upsert({
+        id: session.user.id,
+        email: session.user.email,
+      });
+
+    if (userError) {
+      console.error("Error ensuring user exists:", userError);
+      setError(userError.message);
     }
   }
 
@@ -34,14 +48,14 @@ export default function Index() {
       setError("");
 
       try {
-        const { data: { user } } = await supabase.auth.getUser();
-        if (!user) throw new Error("No user found");
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session) throw new Error("No user found");
 
         // Get the stored app credentials
         const { data: tokens } = await supabase
           .from("tokens")
           .select("app_id, app_secret")
-          .eq("user_id", user.id)
+          .eq("user_id", session.user.id)
           .single();
 
         if (!tokens) {
@@ -82,7 +96,7 @@ export default function Index() {
             refresh_token: data.data.refresh_token,
             expires_at: new Date(Date.now() + data.data.expires_in * 1000).toISOString(),
           })
-          .eq("user_id", user.id);
+          .eq("user_id", session.user.id);
 
         if (dbError) throw dbError;
 
@@ -112,14 +126,24 @@ export default function Index() {
     setError("");
 
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error("No user found");
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) throw new Error("No user found");
+
+      // Ensure user exists in users table
+      const { error: userError } = await supabase
+        .from("users")
+        .upsert({
+          id: session.user.id,
+          email: session.user.email,
+        });
+
+      if (userError) throw userError;
 
       // Store app credentials
       const { error: dbError } = await supabase
         .from("tokens")
         .upsert({
-          user_id: user.id,
+          user_id: session.user.id,
           app_id: appId,
           app_secret: appSecret,
         });
