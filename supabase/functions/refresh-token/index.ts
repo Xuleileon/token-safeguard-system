@@ -7,6 +7,7 @@ const corsHeaders = {
 };
 
 serve(async (req) => {
+  // Handle CORS preflight requests
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
   }
@@ -19,6 +20,7 @@ serve(async (req) => {
 
     // Get token ID from request
     const { tokenId } = await req.json();
+    console.log('Refreshing token with ID:', tokenId);
 
     // Get token from database
     const { data: token, error: fetchError } = await supabaseClient
@@ -27,7 +29,12 @@ serve(async (req) => {
       .eq('id', tokenId)
       .single();
 
-    if (fetchError) throw fetchError;
+    if (fetchError) {
+      console.error('Error fetching token:', fetchError);
+      throw fetchError;
+    }
+
+    console.log('Found token:', token);
 
     // Call Qianchuan API to refresh token
     const response = await fetch('https://qianchuan.jinritemai.com/oauth2/refresh_token', {
@@ -42,6 +49,7 @@ serve(async (req) => {
     });
 
     const data = await response.json();
+    console.log('Qianchuan API response:', data);
 
     if (data.message === 'success') {
       // Update token in database
@@ -54,7 +62,10 @@ serve(async (req) => {
         })
         .eq('id', tokenId);
 
-      if (updateError) throw updateError;
+      if (updateError) {
+        console.error('Error updating token:', updateError);
+        throw updateError;
+      }
 
       return new Response(
         JSON.stringify({ success: true, data: data.data }),
@@ -66,7 +77,10 @@ serve(async (req) => {
   } catch (error) {
     console.error('Error:', error);
     return new Response(
-      JSON.stringify({ error: error.message }),
+      JSON.stringify({ 
+        error: error.message,
+        details: error
+      }),
       { 
         status: 500,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' }
