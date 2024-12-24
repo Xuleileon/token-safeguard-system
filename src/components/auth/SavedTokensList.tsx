@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 interface SavedToken {
   app_id: string;
+  app_secret: string;  // Added this property to fix the TypeScript error
   expires_at: string | null;
 }
 
